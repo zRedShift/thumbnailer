@@ -306,7 +306,7 @@ ThumbContext *create_thumb_context(AVStream *stream, AVFrame *frame) {
     int nb_frames = 100;
     if (stream->disposition & AV_DISPOSITION_ATTACHED_PIC) {
         nb_frames = 1;
-    } else if (stream->nb_frames  && stream->nb_frames < 400) {
+    } else if (stream->nb_frames && stream->nb_frames < 400) {
         nb_frames = (int) (stream->nb_frames >> 2) + 1;
     }
     int frames_in_128mb = (1 << 30) / (av_get_bits_per_pixel(thumb_ctx->desc) * frame->height * frame->width);

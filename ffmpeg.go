@@ -18,7 +18,7 @@ import (
 
 //export readCallback
 func readCallback(opaque unsafe.Pointer, buf *C.uint8_t, bufSize C.int) C.int {
-	ctx, ok := contexts.Get(opaque)
+	ctx, ok := ctxMap.getFile(opaque)
 	if !ok {
 		return C.int(avErrUnknown)
 	}
@@ -35,7 +35,7 @@ func readCallback(opaque unsafe.Pointer, buf *C.uint8_t, bufSize C.int) C.int {
 
 //export writeCallback
 func writeCallback(opaque unsafe.Pointer, buf *C.uint8_t, bufSize C.int) C.int {
-	ctx, ok := contexts.Get(opaque)
+	ctx, ok := ctxMap.getFile(opaque)
 	if !ok {
 		return C.int(avErrUnknown)
 	}
@@ -49,11 +49,11 @@ func writeCallback(opaque unsafe.Pointer, buf *C.uint8_t, bufSize C.int) C.int {
 
 //export seekCallback
 func seekCallback(opaque unsafe.Pointer, offset C.int64_t, whence C.int) C.int64_t {
-	ctx, ok := contexts.Get(opaque)
+	ctx, ok := ctxMap.getFile(opaque)
 	if !ok {
 		return C.int64_t(avErrUnknown)
 	}
-	if !ctx.CanSeekToEnd && whence >= C.SEEK_END {
+	if !ctx.SeekEnd && whence >= C.SEEK_END {
 		return C.int64_t(avErrUnknown)
 	}
 	if whence == C.AVSEEK_SIZE && ctx.Size > 0 {
@@ -68,9 +68,9 @@ func seekCallback(opaque unsafe.Pointer, offset C.int64_t, whence C.int) C.int64
 
 //export interruptCallback
 func interruptCallback(opaque unsafe.Pointer) C.int {
-	if ctx, ok := contexts.Get(opaque); ok && ctx.Interrupt != nil {
+	if ctx, ok := ctxMap.getContext(opaque); ok {
 		select {
-		case <-ctx.Interrupt.Done():
+		case <-ctx.Done():
 			return 1
 		default:
 			return 0
@@ -93,6 +93,18 @@ const (
 const (
 	hasVideo = 1 << iota
 	hasAudio
+)
+
+type contextKey int
+
+const (
+	fileKey contextKey = iota
+	fmtCtxKey
+	streamKey
+	decCtxKey
+	thumbCtxKey
+	frameKey
+	durationKey
 )
 
 type avError C.int
@@ -122,172 +134,181 @@ func (e avError) Error() string {
 	return goString
 }
 
-type avContextMap struct {
+type contextMap struct {
 	sync.RWMutex
-	m map[uintptr]*avContext
+	m map[*C.AVFormatContext]context.Context
 }
 
-func (m *avContextMap) Get(opaque unsafe.Pointer) (ctx *avContext, ok bool) {
+func (m *contextMap) getFile(opaque unsafe.Pointer) (file *File, ok bool) {
 	m.RLock()
-	ctx, ok = m.m[uintptr(opaque)]
+	ctx, ok := m.m[(*C.AVFormatContext)(opaque)]
+	m.RUnlock()
+	if ok {
+		file, ok = ctx.Value(fileKey).(*File)
+	}
+	return
+}
+
+func (m *contextMap) getContext(opaque unsafe.Pointer) (ctx context.Context, ok bool) {
+	m.RLock()
+	ctx, ok = m.m[(*C.AVFormatContext)(opaque)]
 	m.RUnlock()
 	return
 }
 
-func (m *avContextMap) Set(ctx *avContext) {
+func (m *contextMap) set(ctx context.Context) {
+	fmtCtx := ctx.Value(fmtCtxKey).(*C.AVFormatContext)
 	m.Lock()
-	m.m[uintptr(unsafe.Pointer(ctx.formatContext))] = ctx
+	m.m[fmtCtx] = ctx
 	m.Unlock()
 	return
 }
 
-func (m *avContextMap) Delete(ctx *avContext) {
-	m.Lock()
-	delete(m.m, uintptr(unsafe.Pointer(ctx.formatContext)))
-	m.Unlock()
-	return
+func (m *contextMap) delete(ctx context.Context) (*C.AVFormatContext, bool) {
+	if fmtCtx, ok := ctx.Value(fmtCtxKey).(*C.AVFormatContext); ok {
+		m.Lock()
+		delete(m.m, fmtCtx)
+		m.Unlock()
+		return fmtCtx, true
+	}
+	return nil, false
 }
 
-var contexts = avContextMap{m: make(map[uintptr]*avContext)}
+var ctxMap = contextMap{m: make(map[*C.AVFormatContext]context.Context)}
 
-type avContext struct {
-	formatContext  *C.AVFormatContext
-	decoderContext *C.AVCodecContext
-	videoStream    *C.AVStream
-	thumbContext   *C.ThumbContext
-	outputFrame    *C.AVFrame
-	*Content
-	durationInFormat bool
-	Interrupt        context.Context
+func freeFormatContext(ctx context.Context) {
+	if fmtCtx, ok := ctxMap.delete(ctx); ok && fmtCtx != nil {
+		C.free_format_context(fmtCtx)
+	}
 }
 
-func (ctx *avContext) freeFormatContext() {
-	contexts.Delete(ctx)
-	if ctx.formatContext != nil {
-		C.free_format_context(ctx.formatContext)
+func createFormatContext(inCtx context.Context, callbackFlags C.int) (ctx context.Context, err error) {
+	var fmtCtx *C.AVFormatContext
+	intErr := C.allocate_format_context(&fmtCtx)
+	if intErr < 0 {
+		return nil, avError(intErr)
 	}
-	ctx.videoStream = nil
-	ctx.formatContext = nil
-}
-
-func createAVContext(outsideCtx context.Context, content *Content) (ctx *avContext, err error) {
-	callbackFlags := C.int(readCallbackFlag)
-	if content.Seeker != nil {
-		callbackFlags |= seekCallbackFlag
-	}
-	if outsideCtx != nil {
-		callbackFlags |= interruptCallbackFlag
-	}
-	ctx = new(avContext)
+	ctx = context.WithValue(inCtx, fmtCtxKey, fmtCtx)
+	ctxMap.set(ctx)
 	defer func() {
 		if err != nil {
-			ctx.freeFormatContext()
-			ctx = nil
+			freeFormatContext(ctx)
 		}
 	}()
-	ctx.Content = content
-	ctx.Interrupt = outsideCtx
-	intErr := C.allocate_format_context(&ctx.formatContext)
+	intErr = C.create_format_context(fmtCtx, callbackFlags)
 	if intErr < 0 {
-		return ctx, avError(intErr)
+		return nil, avError(intErr)
 	}
-	contexts.Set(ctx)
-	intErr = C.create_format_context(ctx.formatContext, callbackFlags)
-	if intErr < 0 {
-		return ctx, avError(intErr)
-	}
-	ctx.getMetaData()
-	ctx.getDuration()
-	return ctx, ctx.findStreams()
+	getMetaData(ctx)
+	ctx = getDuration(ctx)
+	return findStreams(ctx)
 }
 
-func (ctx *avContext) getMetaData() {
+func getMetaData(ctx context.Context) {
 	var artist, title *C.char
-	C.get_metadata(ctx.formatContext, &artist, &title)
-	ctx.Artist = C.GoString(artist)
-	ctx.Title = C.GoString(title)
+	fmtCtx := ctx.Value(fmtCtxKey).(*C.AVFormatContext)
+	C.get_metadata(fmtCtx, &artist, &title)
+	file := ctx.Value(fileKey).(*File)
+	file.Artist = C.GoString(artist)
+	file.Title = C.GoString(title)
 }
 
-func (ctx *avContext) getDuration() {
-	if ctx.formatContext.duration > 0 {
-		ctx.durationInFormat = true
-		ctx.Duration = time.Duration(1000 * ctx.formatContext.duration)
+func getDuration(ctx context.Context) context.Context {
+	durationInFormat := false
+	if fmtCtx := ctx.Value(fmtCtxKey).(*C.AVFormatContext); fmtCtx.duration > 0 {
+		durationInFormat = true
+		ctx.Value(fileKey).(*File).Duration = time.Duration(1000 * fmtCtx.duration)
 	}
+	return context.WithValue(ctx, durationKey, durationInFormat)
+
 }
 
-func (ctx *avContext) incrementDuration() {
-	if !ctx.durationInFormat && ctx.outputFrame.pts != C.AV_NOPTS_VALUE {
-		ptsToNanoseconds := C.int64_t(1000000000 * ctx.videoStream.time_base.num /
-			ctx.videoStream.time_base.den)
-		newDuration := time.Duration(ctx.outputFrame.pts * ptsToNanoseconds)
-		if newDuration > ctx.Duration {
-			ctx.Duration = newDuration
-		}
-	}
-}
-
-func (ctx *avContext) fullDuration() error {
-	defer ctx.freeFormatContext()
-	if ctx.durationInFormat {
+func fullDuration(ctx context.Context) error {
+	defer freeFormatContext(ctx)
+	if ctx.Value(durationKey).(bool) {
 		return nil
 	}
-	newDuration := time.Duration(C.find_duration(ctx.formatContext))
+	newDuration := time.Duration(C.find_duration(ctx.Value(fmtCtxKey).(*C.AVFormatContext)))
 	if newDuration < 0 {
 		return avError(newDuration)
 	}
-	if newDuration > ctx.Duration {
-		ctx.Duration = newDuration
+	file := ctx.Value(fileKey).(*File)
+	if newDuration > file.Duration {
+		file.Duration = newDuration
 	}
 	return nil
 }
 
-func (ctx *avContext) findStreams() error {
-	err := C.find_streams(ctx.formatContext, &ctx.videoStream)
+func findStreams(ctx context.Context) (context.Context, error) {
+	var vStream *C.AVStream
+	err := C.find_streams(ctx.Value(fmtCtxKey).(*C.AVFormatContext), &vStream)
 	if err < 0 {
-		return avError(err)
+		return nil, avError(err)
 	}
-	ctx.HasVideo = err&hasVideo != 0
-	ctx.HasAudio = err&hasAudio != 0
-	if !ctx.HasVideo {
-		ctx.Media = "audio"
-		return nil
+	ctx = context.WithValue(ctx, streamKey, vStream)
+	file := ctx.Value(fileKey).(*File)
+	file.HasVideo = err&hasVideo != 0
+	file.HasAudio = err&hasAudio != 0
+	if !file.HasVideo {
+		file.Media = "audio"
+	} else {
+		file.Width = int(vStream.codecpar.width)
+		file.Height = int(vStream.codecpar.height)
 	}
-	ctx.Width = int(ctx.videoStream.codecpar.width)
-	ctx.Height = int(ctx.videoStream.codecpar.height)
-	return nil
+	return ctx, nil
 }
 
-func (ctx *avContext) createDecoder() error {
-	err := C.create_codec_context(ctx.videoStream, &ctx.decoderContext)
+func createDecoder(ctx context.Context) (context.Context, error) {
+	var decCtx *C.AVCodecContext
+	err := C.create_codec_context(ctx.Value(streamKey).(*C.AVStream), &decCtx)
 	if err < 0 {
-		return avError(err)
+		return nil, avError(err)
 	}
-	defer C.avcodec_free_context(&ctx.decoderContext)
-	return ctx.createThumbContext()
+	ctx = context.WithValue(ctx, decCtxKey, decCtx)
+	defer C.avcodec_free_context(&decCtx)
+	return createThumbContext(ctx)
 }
 
-func (ctx *avContext) populateHistogram(frames <- chan *C.AVFrame) <- chan struct{} {
+func incrementDuration(ctx context.Context, frame *C.AVFrame) {
+	if !ctx.Value(durationKey).(bool) && frame.pts != C.AV_NOPTS_VALUE {
+		vStream := ctx.Value(streamKey).(*C.AVStream)
+		ptsToNano := C.int64_t(1000000000 * vStream.time_base.num / vStream.time_base.den)
+		newDuration := time.Duration(frame.pts * ptsToNano)
+		file := ctx.Value(fileKey).(*File)
+		if newDuration > file.Duration {
+			file.Duration = newDuration
+		}
+	}
+}
+
+func populateHistogram(ctx context.Context, frames <-chan *C.AVFrame) <-chan struct{} {
 	done := make(chan struct{})
+	thumbCtx := ctx.Value(thumbCtxKey).(*C.ThumbContext)
 	go func() {
 		var n C.int
 		for frame := range frames {
-			C.populate_histogram(ctx.thumbContext, n, frame)
+			C.populate_histogram(thumbCtx, n, frame)
 			n++
 		}
-		ctx.thumbContext.n = n
+		thumbCtx.n = n
 		done <- struct{}{}
 		close(done)
 	}()
 	return done
 }
 
-func (ctx *avContext) createThumbContext() error {
+func createThumbContext(ctx context.Context) (context.Context, error) {
 	pkt := C.create_packet()
-	err := C.obtain_next_frame(ctx.formatContext, ctx.decoderContext, ctx.videoStream.index, &pkt, &ctx.outputFrame)
+	fmtCtx := ctx.Value(fmtCtxKey).(*C.AVFormatContext)
+	vStream := ctx.Value(streamKey).(*C.AVStream)
+	decCtx := ctx.Value(decCtxKey).(*C.AVCodecContext)
+	var frame *C.AVFrame
+	var thumbCtx *C.ThumbContext
+	err := C.obtain_next_frame(fmtCtx, decCtx, vStream.index, &pkt, &frame)
 	if err >= 0 {
-		ctx.incrementDuration()
-		ctx.thumbContext = C.create_thumb_context(ctx.videoStream, ctx.outputFrame)
-		if ctx.thumbContext == nil {
+		incrementDuration(ctx, frame)
+		thumbCtx = C.create_thumb_context(vStream, frame)
+		if thumbCtx == nil {
 			err = C.int(avErrNoMem)
 		}
 	}
@@ -295,95 +316,101 @@ func (ctx *avContext) createThumbContext() error {
 		if pkt.buf != nil {
 			C.av_packet_unref(&pkt)
 		}
-		if ctx.outputFrame != nil {
-			C.av_frame_free(&ctx.outputFrame)
+		if frame != nil {
+			C.av_frame_free(&frame)
 		}
-		return avError(err)
+		return nil, avError(err)
 	}
-	defer func() {
-		C.free_thumb_context(ctx.thumbContext)
-		ctx.thumbContext = nil
-	}()
-	frames := make(chan *C.AVFrame, ctx.thumbContext.max_frames)
-	done := ctx.populateHistogram(frames)
-	frames <- ctx.outputFrame
-	ctx.outputFrame = nil
+	ctx = context.WithValue(ctx, thumbCtxKey, thumbCtx)
+	defer C.free_thumb_context(thumbCtx)
+	frames := make(chan *C.AVFrame, thumbCtx.max_frames)
+	done := populateHistogram(ctx, frames)
+	frames <- frame
 	if pkt.buf != nil {
 		C.av_packet_unref(&pkt)
 	}
-	return ctx.populateThumbContext(frames, done)
+	return populateThumbContext(ctx, frames, done)
 }
 
-func (ctx *avContext) populateThumbContext(frames chan *C.AVFrame, done <- chan struct{}) error {
+func populateThumbContext(ctx context.Context, frames chan *C.AVFrame, done <-chan struct{}) (context.Context, error) {
 	pkt := C.create_packet()
+	var frame *C.AVFrame
+	fmtCtx := ctx.Value(fmtCtxKey).(*C.AVFormatContext)
+	vStream := ctx.Value(streamKey).(*C.AVStream)
+	decCtx := ctx.Value(decCtxKey).(*C.AVCodecContext)
+	thumbCtx := ctx.Value(thumbCtxKey).(*C.ThumbContext)
 	var err C.int
-	for i := C.int(1); i < ctx.thumbContext.max_frames; i++ {
-		err = C.obtain_next_frame(ctx.formatContext, ctx.decoderContext, ctx.videoStream.index, &pkt, &ctx.outputFrame)
+	for i := C.int(1); i < thumbCtx.max_frames; i++ {
+		err = C.obtain_next_frame(fmtCtx, decCtx, vStream.index, &pkt, &frame)
 		if err < 0 {
 			break
 		}
-		ctx.incrementDuration()
-		frames <- ctx.outputFrame
-		ctx.outputFrame = nil
+		incrementDuration(ctx, frame)
+		frames <- frame
+		frame = nil
 	}
 	close(frames)
 	if pkt.buf != nil {
 		C.av_packet_unref(&pkt)
 	}
-	if ctx.outputFrame != nil {
-		C.av_frame_free(&ctx.outputFrame)
+	if frame != nil {
+		C.av_frame_free(&frame)
 	}
 	<-done
 	if err != 0 && err != C.int(avErrEOF) {
-		return avError(err)
+		return nil, avError(err)
 	}
-	return ctx.convertFrameToRGB()
+	return convertFrameToRGB(ctx)
 }
 
-func (ctx *avContext) convertFrameToRGB() error {
-	ctx.outputFrame = C.convert_frame_to_rgb(C.process_frames(ctx.thumbContext), ctx.thumbContext.alpha)
-	if ctx.outputFrame == nil {
-		return avErrNoMem
+func convertFrameToRGB(ctx context.Context) (context.Context, error) {
+	thumbCtx := ctx.Value(thumbCtxKey).(*C.ThumbContext)
+	outputFrame := C.convert_frame_to_rgb(C.process_frames(thumbCtx), thumbCtx.alpha)
+	if outputFrame == nil {
+		return nil, avErrNoMem
 	}
-	ctx.AlphaChannel = ctx.thumbContext.alpha != 0
-	return nil
+	ctx = context.WithValue(ctx, frameKey, outputFrame)
+	ctx.Value(fileKey).(*File).HasAlpha = thumbCtx.alpha != 0
+	return ctx, nil
 }
 
-func freeOutputFrame(outputFrame *C.AVFrame) {
-	C.av_frame_free(&outputFrame)
-}
-
-func (ctx *avContext) thumbnail() <-chan error {
+func thumbnail(ctx context.Context) <-chan error {
 	errCh := make(chan error)
+	outputFrame := ctx.Value(frameKey).(*C.AVFrame)
 	go func() {
-		err := ctx.thumbnailFromBytes(ctx.outputFrame.data[0])
-		freeOutputFrame(ctx.outputFrame)
+		err := thumbnailFromFFmpeg(ctx.Value(fileKey).(*File), outputFrame.data[0])
+		C.av_frame_free(&outputFrame)
 		errCh <- err
 		close(errCh)
 	}()
 	return errCh
 }
 
-func ffmpegThumbnail(outsideCtx context.Context, content *Content) (bool, error) {
-	ctx, err := createAVContext(outsideCtx, content)
+func ffmpegThumbnail(ctx context.Context, file *File) error {
+	ctx = context.WithValue(ctx, fileKey, file)
+	callbackFlags := C.int(readCallbackFlag | interruptCallbackFlag)
+	if file.Seeker != nil {
+		callbackFlags |= seekCallbackFlag
+	}
+	ctx, err := createFormatContext(ctx, callbackFlags)
 	if err != nil {
-		return false, err
+		return err
 	}
-	if !ctx.HasVideo {
-		return false, ctx.fullDuration()
+	if !file.HasVideo {
+		return fullDuration(ctx)
 	}
-	if err = ctx.createDecoder(); err == errTooBig || err == avErrDecoderNotFound {
-		return false, ctx.fullDuration()
+	if ctx, err = createDecoder(ctx); err == errTooBig || err == avErrDecoderNotFound {
+		return fullDuration(ctx)
 	}
 	if err != nil {
-		ctx.freeFormatContext()
-		return false, err
+		freeFormatContext(ctx)
+		return err
 	}
-	errCh := ctx.thumbnail()
-	err = ctx.fullDuration()
+	errCh := thumbnail(ctx)
+	err = fullDuration(ctx)
 	thumbErr := <-errCh
 	if thumbErr != nil {
-		return false, err
+		return thumbErr
 	}
-	return true, err
+	return err
 }
