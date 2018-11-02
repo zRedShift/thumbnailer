@@ -1,7 +1,5 @@
 package thumbnailer
 
-import "C"
-
 //#cgo pkg-config: libavformat libavutil libavcodec libswscale
 // #cgo CFLAGS: -std=c11 -O3 -DNDEBUG
 // #include "ffmpeg.h"
@@ -114,6 +112,7 @@ var (
 	avErrEOF             = avError(C.AVERROR_EOF)
 	avErrUnknown         = avError(C.AVERROR_UNKNOWN)
 	avErrDecoderNotFound = avError(C.AVERROR_DECODER_NOT_FOUND)
+	avErrInvalidData     = avError(C.AVERROR_INVALIDDATA)
 	errTooBig            = avError(C.ERR_TOO_BIG)
 )
 
@@ -182,26 +181,26 @@ func freeFormatContext(ctx context.Context) {
 	}
 }
 
-func createFormatContext(inCtx context.Context, callbackFlags C.int) (ctx context.Context, err error) {
+func createFormatContext(ctx context.Context, callbackFlags C.int) (context.Context, error) {
 	var fmtCtx *C.AVFormatContext
 	intErr := C.allocate_format_context(&fmtCtx)
 	if intErr < 0 {
 		return nil, avError(intErr)
 	}
-	ctx = context.WithValue(inCtx, fmtCtxKey, fmtCtx)
+	ctx = context.WithValue(ctx, fmtCtxKey, fmtCtx)
 	ctxMap.set(ctx)
-	defer func() {
-		if err != nil {
-			freeFormatContext(ctx)
-		}
-	}()
 	intErr = C.create_format_context(fmtCtx, callbackFlags)
 	if intErr < 0 {
+		ctxMap.delete(ctx)
 		return nil, avError(intErr)
 	}
 	getMetaData(ctx)
 	ctx = getDuration(ctx)
-	return findStreams(ctx)
+	ctx, err := findStreams(ctx)
+	if err != nil {
+		freeFormatContext(ctx)
+	}
+	return ctx, err
 }
 
 func getMetaData(ctx context.Context) {
@@ -243,7 +242,7 @@ func findStreams(ctx context.Context) (context.Context, error) {
 	var vStream *C.AVStream
 	err := C.find_streams(ctx.Value(fmtCtxKey).(*C.AVFormatContext), &vStream)
 	if err < 0 {
-		return nil, avError(err)
+		return ctx, avError(err)
 	}
 	ctx = context.WithValue(ctx, streamKey, vStream)
 	file := ctx.Value(fileKey).(*File)
@@ -262,7 +261,7 @@ func createDecoder(ctx context.Context) (context.Context, error) {
 	var decCtx *C.AVCodecContext
 	err := C.create_codec_context(ctx.Value(streamKey).(*C.AVStream), &decCtx)
 	if err < 0 {
-		return nil, avError(err)
+		return ctx, avError(err)
 	}
 	ctx = context.WithValue(ctx, decCtxKey, decCtx)
 	defer C.avcodec_free_context(&decCtx)
@@ -319,7 +318,7 @@ func createThumbContext(ctx context.Context) (context.Context, error) {
 		if frame != nil {
 			C.av_frame_free(&frame)
 		}
-		return nil, avError(err)
+		return ctx, avError(err)
 	}
 	ctx = context.WithValue(ctx, thumbCtxKey, thumbCtx)
 	defer C.free_thumb_context(thumbCtx)
@@ -358,7 +357,7 @@ func populateThumbContext(ctx context.Context, frames chan *C.AVFrame, done <-ch
 	}
 	<-done
 	if err != 0 && err != C.int(avErrEOF) {
-		return nil, avError(err)
+		return ctx, avError(err)
 	}
 	return convertFrameToRGB(ctx)
 }
@@ -367,7 +366,7 @@ func convertFrameToRGB(ctx context.Context) (context.Context, error) {
 	thumbCtx := ctx.Value(thumbCtxKey).(*C.ThumbContext)
 	outputFrame := C.convert_frame_to_rgb(C.process_frames(thumbCtx), thumbCtx.alpha)
 	if outputFrame == nil {
-		return nil, avErrNoMem
+		return ctx, avErrNoMem
 	}
 	ctx = context.WithValue(ctx, frameKey, outputFrame)
 	ctx.Value(fileKey).(*File).HasAlpha = thumbCtx.alpha != 0

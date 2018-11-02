@@ -4,6 +4,10 @@ int init_vips() {
     return VIPS_INIT("thumbnailer");
 }
 
+void vips_error_push_back(char *domain, char *fmt) {
+    vips_error(domain, fmt, NULL);
+}
+
 void shutdown_vips_thread_on_error() {
     vips_error_clear();
     vips_thread_shutdown();
@@ -16,6 +20,15 @@ static int has_alpha(VipsImage *in, gboolean *has_alpha) {
     VipsImage *out;
     if (vips_extract_band(in, &out, vips_image_get_bands(in) - 1, NULL)) {
         return -1;
+    }
+    if (vips_image_get_format(out) != VIPS_FORMAT_UCHAR) {
+        VipsImage *down;
+        int err = vips_cast_uchar(out, &down, NULL);
+        g_object_unref(out);
+        if (err) {
+            return -1;
+        }
+        out = down;
     }
     double min;
     int err = vips_min(out, &min, NULL);
@@ -38,14 +51,16 @@ int thumbnail(RawThumbnail *thumb) {
         if (!(in = vips_image_new_from_file(thumb->input_path, NULL))) {
             return -1;
         }
+        thumb->width = vips_image_get_width(in);
+        thumb->height = vips_image_get_height(in);
     }
     int err = vips_thumbnail_image(in, &out, thumb->target_size, "size", VIPS_SIZE_DOWN, NULL);
     g_object_unref(in);
     if (err) {
         return -1;
     }
-    thumb->width = vips_image_get_width(out);
-    thumb->height = vips_image_get_height(out);
+    thumb->thumb_width = vips_image_get_width(out);
+    thumb->thumb_height = vips_image_get_height(out);
     if (has_alpha(out, &thumb->has_alpha)) {
         g_object_unref(out);
         return -1;

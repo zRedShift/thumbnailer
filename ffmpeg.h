@@ -1,5 +1,3 @@
-#pragma once
-
 #include <libavformat/avformat.h>
 #include <libavutil/opt.h>
 #include <libavutil/file.h>

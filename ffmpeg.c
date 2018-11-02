@@ -132,7 +132,9 @@ int create_codec_context(AVStream *video_stream, AVCodecContext **dec_ctx) {
     if (dec == NULL) {
         return AVERROR_DECODER_NOT_FOUND;
     }
-
+    if (par->format == -1) {
+        return AVERROR_INVALIDDATA;
+    }
     if (av_get_bits_per_pixel(av_pix_fmt_desc_get(par->format)) * par->height * par->width > 1 << 30) {
         return ERR_TOO_BIG;
     }
