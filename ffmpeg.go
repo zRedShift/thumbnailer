@@ -16,7 +16,7 @@ import (
 
 //export readCallback
 func readCallback(opaque unsafe.Pointer, buf *C.uint8_t, bufSize C.int) C.int {
-	ctx, ok := ctxMap.getFile(opaque)
+	ctx, ok := ctxMap.file(opaque)
 	if !ok {
 		return C.int(avErrUnknown)
 	}
@@ -33,7 +33,7 @@ func readCallback(opaque unsafe.Pointer, buf *C.uint8_t, bufSize C.int) C.int {
 
 //export writeCallback
 func writeCallback(opaque unsafe.Pointer, buf *C.uint8_t, bufSize C.int) C.int {
-	ctx, ok := ctxMap.getFile(opaque)
+	ctx, ok := ctxMap.file(opaque)
 	if !ok {
 		return C.int(avErrUnknown)
 	}
@@ -47,7 +47,7 @@ func writeCallback(opaque unsafe.Pointer, buf *C.uint8_t, bufSize C.int) C.int {
 
 //export seekCallback
 func seekCallback(opaque unsafe.Pointer, offset C.int64_t, whence C.int) C.int64_t {
-	ctx, ok := ctxMap.getFile(opaque)
+	ctx, ok := ctxMap.file(opaque)
 	if !ok {
 		return C.int64_t(avErrUnknown)
 	}
@@ -66,7 +66,7 @@ func seekCallback(opaque unsafe.Pointer, offset C.int64_t, whence C.int) C.int64
 
 //export interruptCallback
 func interruptCallback(opaque unsafe.Pointer) C.int {
-	if ctx, ok := ctxMap.getContext(opaque); ok {
+	if ctx, ok := ctxMap.context(opaque); ok {
 		select {
 		case <-ctx.Done():
 			return 1
@@ -77,8 +77,33 @@ func interruptCallback(opaque unsafe.Pointer) C.int {
 	return 0
 }
 
+// AVLogLevel defines the ffmpeg threshold for dumping information to stderr.
+type AVLogLevel int
+
+// Possible values for AVLogLevel
+const (
+	AVLogQuiet AVLogLevel = (iota - 1) * 8
+	AVLogPanic
+	AVLogFatal
+	AVLogError
+	AVLogWarning
+	AVLogInfo
+	AVLogVerbose
+	AVLogDebug
+	AVLogTrace
+)
+
 func init() {
-	C.av_log_set_level(C.AV_LOG_ERROR)
+	C.av_log_set_level(C.int(AVLogError))
+}
+
+func logLevel() AVLogLevel {
+	return AVLogLevel(C.av_log_get_level())
+}
+
+// SetFFmpegLogLevel allows you to change the log level from the default (AVLogError).
+func SetFFmpegLogLevel(logLevel AVLogLevel) {
+	C.av_log_set_level(C.int(logLevel))
 }
 
 const (
@@ -138,7 +163,7 @@ type contextMap struct {
 	m map[*C.AVFormatContext]context.Context
 }
 
-func (m *contextMap) getFile(opaque unsafe.Pointer) (file *File, ok bool) {
+func (m *contextMap) file(opaque unsafe.Pointer) (file *File, ok bool) {
 	m.RLock()
 	ctx, ok := m.m[(*C.AVFormatContext)(opaque)]
 	m.RUnlock()
@@ -148,7 +173,7 @@ func (m *contextMap) getFile(opaque unsafe.Pointer) (file *File, ok bool) {
 	return
 }
 
-func (m *contextMap) getContext(opaque unsafe.Pointer) (ctx context.Context, ok bool) {
+func (m *contextMap) context(opaque unsafe.Pointer) (ctx context.Context, ok bool) {
 	m.RLock()
 	ctx, ok = m.m[(*C.AVFormatContext)(opaque)]
 	m.RUnlock()
@@ -194,8 +219,8 @@ func createFormatContext(ctx context.Context, callbackFlags C.int) (context.Cont
 		ctxMap.delete(ctx)
 		return nil, avError(intErr)
 	}
-	getMetaData(ctx)
-	ctx = getDuration(ctx)
+	metaData(ctx)
+	ctx = duration(ctx)
 	ctx, err := findStreams(ctx)
 	if err != nil {
 		freeFormatContext(ctx)
@@ -203,7 +228,7 @@ func createFormatContext(ctx context.Context, callbackFlags C.int) (context.Cont
 	return ctx, err
 }
 
-func getMetaData(ctx context.Context) {
+func metaData(ctx context.Context) {
 	var artist, title *C.char
 	fmtCtx := ctx.Value(fmtCtxKey).(*C.AVFormatContext)
 	C.get_metadata(fmtCtx, &artist, &title)
@@ -212,7 +237,7 @@ func getMetaData(ctx context.Context) {
 	file.Title = C.GoString(title)
 }
 
-func getDuration(ctx context.Context) context.Context {
+func duration(ctx context.Context) context.Context {
 	durationInFormat := false
 	if fmtCtx := ctx.Value(fmtCtxKey).(*C.AVFormatContext); fmtCtx.duration > 0 {
 		durationInFormat = true
