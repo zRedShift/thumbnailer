@@ -22,13 +22,15 @@ func readCallback(opaque unsafe.Pointer, buf *C.uint8_t, bufSize C.int) C.int {
 	}
 	p := (*[1 << 30]byte)(unsafe.Pointer(buf))[:bufSize:bufSize]
 	n, err := ctx.Read(p)
-	if err == io.EOF {
-		return C.int(avErrEOF)
+	if n > 0 || err == nil {
+		return C.int(n)
 	}
-	if err != nil {
+	switch err {
+	case io.EOF:
+		return C.int(avErrEOF)
+	default:
 		return C.int(avErrUnknown)
 	}
-	return C.int(n)
 }
 
 //export writeCallback
