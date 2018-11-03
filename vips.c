@@ -1,7 +1,19 @@
 #include "vips.h"
 
+static gboolean initiated = FALSE;
+
 int init_vips() {
-    return VIPS_INIT("thumbnailer");
+    if (!initiated) {
+        initiated = TRUE;
+        return VIPS_INIT("thumbnailer");
+    }
+    return vips_init("thumbnailer");
+}
+
+void shutdown_vips() {
+    if (initiated) {
+        vips_shutdown();
+    }
 }
 
 void vips_error_push_back(char *domain, char *fmt) {
@@ -47,13 +59,22 @@ int thumbnail(RawThumbnail *thumb) {
             return -1;
         }
         in->Type = VIPS_INTERPRETATION_sRGB;
+        GValue orientation = G_VALUE_INIT;
+        g_value_init(&orientation, G_TYPE_INT);
+        g_value_set_int(&orientation, thumb->orientation);
+        vips_image_set(in, VIPS_META_ORIENTATION, &orientation);
     } else {
         if (!(in = vips_image_new_from_file(thumb->input_path, NULL))) {
             return -1;
         }
         thumb->width = vips_image_get_width(in);
         thumb->height = vips_image_get_height(in);
+        if (!vips_image_get_typeof(in, VIPS_META_ORIENTATION) ||
+            vips_image_get_int(in, VIPS_META_ORIENTATION, &thumb->orientation)) {
+            thumb->orientation = 1;
+        }
     }
+
     int err = vips_thumbnail_image(in, &out, thumb->target_size, "size", VIPS_SIZE_DOWN, NULL);
     g_object_unref(in);
     if (err) {

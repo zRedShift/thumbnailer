@@ -1,13 +1,16 @@
+#include <math.h>
+#include <pthread.h>
+#include <float.h>
+
 #include <libavformat/avformat.h>
 #include <libavutil/opt.h>
 #include <libavutil/file.h>
 #include <libavutil/pixfmt.h>
 #include <libswscale/swscale.h>
-#include <pthread.h>
-#include <float.h>
 #include <libavutil/pixdesc.h>
 #include <libavutil/intreadwrite.h>
 #include <libavutil/imgutils.h>
+#include <libavutil/display.h>
 
 #define BUFFER_SIZE 1 << 12
 #define READ_CALLBACK 1
@@ -39,7 +42,7 @@ void free_format_context(AVFormatContext *fmt_ctx);
 
 void get_metadata(AVFormatContext *fmt_ctx, char **artist, char **title);
 
-int find_streams(AVFormatContext *fmt_ctx, AVStream **video_stream);
+int find_streams(AVFormatContext *fmt_ctx, AVStream **video_stream, int *orientation);
 
 int create_codec_context(AVStream *video_stream, AVCodecContext **dec_ctx);
 

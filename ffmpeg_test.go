@@ -30,4 +30,5 @@ func TestSetFFmpegLogLevel(t *testing.T) {
 			}
 		})
 	}
+	SetFFmpegLogLevel(AVLogError)
 }

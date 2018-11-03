@@ -2,6 +2,7 @@ package thumbnailer
 
 //#cgo pkg-config: libavformat libavutil libavcodec libswscale
 // #cgo CFLAGS: -std=c11 -O3 -DNDEBUG
+// #cgo LDFLAGS: -lm
 // #include "ffmpeg.h"
 import "C"
 import (
@@ -267,7 +268,8 @@ func fullDuration(ctx context.Context) error {
 
 func findStreams(ctx context.Context) (context.Context, error) {
 	var vStream *C.AVStream
-	err := C.find_streams(ctx.Value(fmtCtxKey).(*C.AVFormatContext), &vStream)
+	var orientation C.int
+	err := C.find_streams(ctx.Value(fmtCtxKey).(*C.AVFormatContext), &vStream, &orientation)
 	if err < 0 {
 		return ctx, avError(err)
 	}
@@ -280,6 +282,7 @@ func findStreams(ctx context.Context) (context.Context, error) {
 	} else {
 		file.Width = int(vStream.codecpar.width)
 		file.Height = int(vStream.codecpar.height)
+		file.Orientation = int(orientation)
 	}
 	return ctx, nil
 }

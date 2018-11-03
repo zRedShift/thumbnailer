@@ -76,6 +76,29 @@ int create_format_context(AVFormatContext *fmt_ctx, int callbacks) {
     return err;
 }
 
+static int get_orientation(AVStream *video_stream) {
+    uint8_t *display_matrix = av_stream_get_side_data(video_stream, AV_PKT_DATA_DISPLAYMATRIX, NULL);
+    double theta = 0;
+    if (display_matrix) {
+        theta = -av_display_rotation_get((int32_t *) display_matrix);
+    }
+
+    theta -= 360 * floor(theta / 360 + 0.9 / 360);
+
+    int rot = (int) (90 * round(theta / 90)) % 360;
+
+    switch (rot) {
+        case 90:
+            return 6;
+        case 180:
+            return 3;
+        case 270:
+            return 8;
+        default:
+            return 1;
+    };
+}
+
 void get_metadata(AVFormatContext *fmt_ctx, char **artist, char **title) {
     AVDictionaryEntry *tag = NULL;
     if ((tag = av_dict_get(fmt_ctx->metadata, "artist", NULL, 0))) {
@@ -86,7 +109,7 @@ void get_metadata(AVFormatContext *fmt_ctx, char **artist, char **title) {
     }
 }
 
-int find_streams(AVFormatContext *fmt_ctx, AVStream **video_stream) {
+int find_streams(AVFormatContext *fmt_ctx, AVStream **video_stream, int *orientation) {
     int video_stream_index = av_find_best_stream(fmt_ctx, AVMEDIA_TYPE_VIDEO, -1, -1, NULL, 0);
     int audio_stream_index = av_find_best_stream(fmt_ctx, AVMEDIA_TYPE_AUDIO, -1, -1, NULL, 0);
     int video_audio = 0;
@@ -102,6 +125,7 @@ int find_streams(AVFormatContext *fmt_ctx, AVStream **video_stream) {
         return AVERROR_STREAM_NOT_FOUND;
     }
     *video_stream = fmt_ctx->streams[video_stream_index];
+    *orientation = get_orientation(*video_stream);
     return video_audio;
 }
 

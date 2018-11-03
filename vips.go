@@ -6,6 +6,7 @@ package thumbnailer
 import "C"
 import (
 	"errors"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
@@ -14,8 +15,55 @@ import (
 	"unsafe"
 )
 
+var vipsMu sync.Mutex
+
 func init() {
-	C.init_vips()
+	InitVIPS()
+}
+
+func vipsCheckLeaks() {
+	C.vips_leak_set(1)
+}
+
+func vipsPrintAll() {
+	C.vips_object_print_all()
+}
+
+// InitVIPS initializes vips.
+func InitVIPS() {
+	vipsMu.Lock()
+	defer vipsMu.Unlock()
+	if C.init_vips() != 0 {
+		panic(fmt.Sprintf("couldn't start vips: %v", vErr.error()))
+	}
+}
+
+// ShutdownVIPS shuts vips down.
+func ShutdownVIPS() {
+	vipsMu.Lock()
+	C.shutdown_vips()
+	vipsMu.Unlock()
+}
+
+// VIPSCacheSetMaxMem Sets the maximum amount of tracked memory vips allows before it starts dropping cached operations.
+func VIPSCacheSetMaxMem(maxMem int) {
+	C.vips_cache_set_max_mem(C.size_t(maxMem))
+}
+
+// VIPSCacheSetMax sets the maximum number of operations vips keeps in cache.
+func VIPSCacheSetMax(max int) {
+	C.vips_cache_set_max(C.int(max))
+}
+
+// VIPSCacheSetMaxFiles Sets the maximum number of tracked files vips allows before it starts dropping cached
+// operations.
+func VIPSCacheSetMaxFiles(maxFiles int) {
+	C.vips_cache_set_max_files(C.int(maxFiles))
+}
+
+// DropAllVIPSCache drops the whole operation cache. Called automatically on ShutdownVips().
+func DropAllVIPSCache() {
+	C.vips_cache_drop_all()
 }
 
 type vipsError struct {
@@ -47,6 +95,7 @@ func thumbnailFromFFmpeg(file *File, data *C.uchar) error {
 		input:       data,
 		quality:     C.int(file.Quality),
 		bands:       3,
+		orientation: C.int(file.Orientation),
 	}
 	if file.HasAlpha {
 		thumb.bands++
@@ -99,8 +148,10 @@ func handleThumbnailOutput(file *File, thumb *C.RawThumbnail) error {
 	if thumb.has_alpha != 0 {
 		file.HasAlpha = true
 	}
-	if file.Width == 0 || file.Height == 0 {
-		file.Width, file.Height = int(thumb.width), int(thumb.height)
+	file.Width, file.Height = int(thumb.width), int(thumb.height)
+	file.Orientation = int(thumb.orientation)
+	if file.Orientation > 4 {
+		file.Width, file.Height = file.Height, file.Width
 	}
 	if file.Thumbnail.Path != "" {
 		file.ThumbCreated = true

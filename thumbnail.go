@@ -25,13 +25,14 @@ const (
 // disables FFmpeg from seeking the end, which enables partial file reading in "semi-streaming" files (incomplete files
 // that block until more data is available but have seeking capabilities) without blocking until the file is complete.
 // HasVideo and HasAudio indicates that the file has video and/or audio streams, but having a video stream does not
-// guarantee a thumbnail.
+// guarantee a thumbnail. Orientation corresponds to the EXIF orientation of the input file.
 type File struct {
 	io.Reader
 	io.Seeker
 	Thumbnail
 	mimemagic.MediaType
 	Dimensions
+	Orientation                 int
 	Size                        int64
 	Duration                    time.Duration
 	Title, Artist, Path         string
