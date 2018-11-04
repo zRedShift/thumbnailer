@@ -96,15 +96,11 @@ const (
 	AVLogTrace
 )
 
-func init() {
-	C.av_log_set_level(C.int(AVLogError))
-}
-
 func logLevel() AVLogLevel {
 	return AVLogLevel(C.av_log_get_level())
 }
 
-// SetFFmpegLogLevel allows you to change the log level from the default (AVLogError).
+// SetFFmpegLogLevel allows you to change the log level from the default (AVLogInfo).
 func SetFFmpegLogLevel(logLevel AVLogLevel) {
 	C.av_log_set_level(C.int(logLevel))
 }

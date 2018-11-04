@@ -15,11 +15,10 @@ import (
 	"unsafe"
 )
 
-var vipsMu sync.Mutex
-
-func init() {
-	InitVIPS()
-}
+var (
+	vipsMu    sync.Mutex
+	initiated bool
+)
 
 func vipsCheckLeaks() {
 	C.vips_leak_set(1)
@@ -36,12 +35,14 @@ func InitVIPS() {
 	if C.init_vips() != 0 {
 		panic(fmt.Sprintf("couldn't start vips: %v", vErr.error()))
 	}
+	initiated = true
 }
 
 // ShutdownVIPS shuts vips down.
 func ShutdownVIPS() {
 	vipsMu.Lock()
 	C.shutdown_vips()
+	initiated = false
 	vipsMu.Unlock()
 }
 
@@ -140,6 +141,9 @@ func handleThumbnailOutput(file *File, thumb *C.RawThumbnail) error {
 	if file.Thumbnail.Path != "" {
 		thumb.output_path = C.CString(file.Thumbnail.Path)
 		defer C.free(unsafe.Pointer(thumb.output_path))
+	}
+	if !initiated {
+		InitVIPS()
 	}
 	if C.thumbnail(thumb) != 0 {
 		return vErr.error()
