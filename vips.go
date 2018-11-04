@@ -48,22 +48,34 @@ func ShutdownVIPS() {
 
 // VIPSCacheSetMaxMem Sets the maximum amount of tracked memory vips allows before it starts dropping cached operations.
 func VIPSCacheSetMaxMem(maxMem int) {
+	if !initiated {
+		InitVIPS()
+	}
 	C.vips_cache_set_max_mem(C.size_t(maxMem))
 }
 
 // VIPSCacheSetMax sets the maximum number of operations vips keeps in cache.
 func VIPSCacheSetMax(max int) {
+	if !initiated {
+		InitVIPS()
+	}
 	C.vips_cache_set_max(C.int(max))
 }
 
 // VIPSCacheSetMaxFiles Sets the maximum number of tracked files vips allows before it starts dropping cached
 // operations.
 func VIPSCacheSetMaxFiles(maxFiles int) {
+	if !initiated {
+		InitVIPS()
+	}
 	C.vips_cache_set_max_files(C.int(maxFiles))
 }
 
 // DropAllVIPSCache drops the whole operation cache. Called automatically on ShutdownVips().
 func DropAllVIPSCache() {
+	if !initiated {
+		InitVIPS()
+	}
 	C.vips_cache_drop_all()
 }
 

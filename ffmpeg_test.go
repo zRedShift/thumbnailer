@@ -18,7 +18,7 @@ func TestSetFFmpegLogLevel(t *testing.T) {
 		{"Trace", AVLogTrace},
 	}
 	level := logLevel()
-	if level != AVLogError {
+	if level != AVLogInfo {
 		t.Errorf("AVLogLevel want = %v, got = %v", AVLogError, level)
 	}
 	for _, test := range tests {

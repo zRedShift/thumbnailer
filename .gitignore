@@ -19,5 +19,8 @@
 cmake-build-debug
 CMakeLists.txt
 
+# gomod
+go.sum
+
 # tmp folder for tests
 tmp/tn_*

@@ -55,6 +55,7 @@ func TestCreateThumbnail(t *testing.T) {
 	}
 	testDir := "fixtures"
 	var wg sync.WaitGroup
+	InitVIPS()
 	vipsCheckLeaks()
 	VIPSCacheSetMaxFiles(10)
 	VIPSCacheSetMax(10)
