@@ -1,8 +1,9 @@
 package thumbnailer
 
 //#cgo pkg-config: vips
-// #cgo CFLAGS: -std=c11 -O3 -DNDEBUG
+// #cgo CFLAGS: -std=c11
 // #include "vips.h"
+// #include "stdlib.h"
 import "C"
 import (
 	"errors"
