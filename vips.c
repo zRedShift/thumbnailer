@@ -16,15 +16,6 @@ void shutdown_vips() {
     }
 }
 
-void vips_error_push_back(char *domain, char *fmt) {
-    vips_error(domain, fmt, NULL);
-}
-
-void shutdown_vips_thread_on_error() {
-    vips_error_clear();
-    vips_thread_shutdown();
-}
-
 static int has_alpha(VipsImage *in, gboolean *has_alpha) {
     if ((*has_alpha = vips_image_hasalpha(in)) == FALSE) {
         return 0;

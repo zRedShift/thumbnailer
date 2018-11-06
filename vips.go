@@ -11,6 +11,7 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"unsafe"
@@ -83,20 +84,22 @@ func DropAllVIPSCache() {
 type vipsError struct {
 	sync.Mutex
 	errSlice []string
+	lastErr  error
 }
 
 func (v *vipsError) error() error {
 	v.Lock()
 	defer v.Unlock()
 	errSlice := strings.Split(C.GoString(C.vips_error_buffer()), "\n")
-	C.shutdown_vips_thread_on_error()
-	v.errSlice = append(errSlice[:len(errSlice)-1], v.errSlice...)
-	if len(v.errSlice) == 0 {
-		return errors.New("vips: failed to fetch error")
+	if len(errSlice) > 1 {
+		C.vips_error_clear()
 	}
-	err := errors.New("vips: " + v.errSlice[0])
-	v.errSlice = v.errSlice[1:]
-	return err
+	v.errSlice = append(errSlice[:len(errSlice)-1], v.errSlice...)
+	if len(v.errSlice) != 0 {
+		v.lastErr = errors.New("vips: " + v.errSlice[0])
+		v.errSlice = v.errSlice[1:]
+	}
+	return v.lastErr
 }
 
 var vErr = &vipsError{errSlice: make([]string, 0, 10)}
@@ -151,6 +154,11 @@ func thumbnailFromFile(file *File) (err error) {
 }
 
 func handleThumbnailOutput(file *File, thumb *C.RawThumbnail) error {
+	runtime.LockOSThread()
+	defer func() {
+		C.vips_thread_shutdown()
+		runtime.UnlockOSThread()
+	}()
 	if file.Thumbnail.Path != "" {
 		thumb.output_path = C.CString(file.Thumbnail.Path)
 		defer C.free(unsafe.Pointer(thumb.output_path))

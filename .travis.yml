@@ -1,0 +1,11 @@
+services: docker
+
+script:
+- docker build -t thumbnailer_test .
+- |
+  docker run thumbnailer_test /bin/bash -c \
+  "go test -race -covermode=atomic -coverprofile=cover.out > /dev/null && cat cover.out" \
+  > cover.out
+
+after_success:
+- bash <(curl -s https://codecov.io/bash) -f cover.out
