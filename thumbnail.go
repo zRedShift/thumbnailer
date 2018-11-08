@@ -174,10 +174,7 @@ func CreateThumbnailWithContext(ctx context.Context, file *File) (err error) {
 		}
 		return ffmpegThumbnail(ctx, file)
 	}
-	if file.Media == "image" || file.Subtype == "pdf" {
-		return thumbnailFromFile(file)
-	}
-	return nil
+	return thumbnailFromFile(file)
 }
 
 // CreateThumbnail calls CreateThumbnailWithContext with a background context.
