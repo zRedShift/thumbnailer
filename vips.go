@@ -15,6 +15,8 @@ import (
 	"strings"
 	"sync"
 	"unsafe"
+
+	"github.com/zRedShift/seekstream"
 )
 
 var (
@@ -128,7 +130,9 @@ func thumbnailFromFile(file *File) (err error) {
 	}
 	if file.Path != "" {
 		thumb.input_path = C.CString(file.Path)
-		defer C.free(unsafe.Pointer(thumb.input_path))
+	} else if f, ok := file.Reader.(*seekstream.File); ok {
+		f.Wait()
+		thumb.input_path = C.CString(f.Name())
 	} else {
 		f, err := ioutil.TempFile(os.TempDir(), "")
 		if err != nil {
@@ -136,7 +140,6 @@ func thumbnailFromFile(file *File) (err error) {
 		}
 		thumb.input_path = C.CString(f.Name())
 		defer func(filename string) {
-			C.free(unsafe.Pointer(thumb.input_path))
 			rErr := os.Remove(filename)
 			if err == nil {
 				err = rErr
@@ -150,6 +153,7 @@ func thumbnailFromFile(file *File) (err error) {
 			return err
 		}
 	}
+	defer C.free(unsafe.Pointer(thumb.input_path))
 	return handleThumbnailOutput(file, &thumb)
 }
 
