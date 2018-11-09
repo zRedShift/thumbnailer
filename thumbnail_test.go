@@ -44,7 +44,7 @@ func TestCreateThumbnail(t *testing.T) {
 		{"dürümpf.mp3", nil, false, Dimensions{0, 0}, 4675833000, 4649795918, false, "audio/mpeg", "", "", 0},
 		{"perpendicular24.pdf", nil, true, Dimensions{553, 417}, 0, 0, false, "application/pdf", "", "", 1},
 		{"gif_bg.gif", nil, true, Dimensions{100, 70}, 0, 0, false, "image/gif", "", "", 1},
-		{"i can't believe this story your telling me.mp4", nil, true, Dimensions{492, 360}, 3925000000, 0, false, "video/mp4", "", "", 1},
+		{"macabre.mp4", nil, true, Dimensions{492, 360}, 3925000000, 0, false, "video/mp4", "", "", 1},
 		{"ancap.svgz", nil, true, Dimensions{900, 600}, 0, 0, false, "image/svg+xml-compressed", "", "", 1},
 		{"sample.tif", nil, true, Dimensions{1600, 2100}, 0, 0, false, "image/tiff", "", "", 1},
 		{"mqdefault_6s.webp", errors.New("vips: webp2vips: unable to read pixels"), false, Dimensions{0, 0}, 0, 0, false, "image/webp", "", "", 0},
