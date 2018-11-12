@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"runtime"
 	"sync"
 	"syscall"
 	"time"
@@ -412,6 +413,8 @@ func thumbnail(ctx context.Context) <-chan error {
 }
 
 func ffmpegThumbnail(ctx context.Context, file *File) error {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
 	ctx = context.WithValue(ctx, fileKey, file)
 	callbackFlags := C.int(readCallbackFlag | interruptCallbackFlag)
 	if file.Seeker != nil {
