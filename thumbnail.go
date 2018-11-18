@@ -86,7 +86,7 @@ func FileFromReadSeeker(r io.ReadSeeker, seekEnd bool, filename ...string) (*Fil
 	if len(filename) > 0 {
 		fn = filename[0]
 	}
-	mediaType, err := mimemagic.MatchReader(r, fn, probeSize)
+	mediaType, err := mimemagic.MatchReader(r, fn, probeSize, mimemagic.Magic)
 	if err != nil {
 		return nil, err
 	}

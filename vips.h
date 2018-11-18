@@ -10,8 +10,4 @@ typedef struct RawThumbnail {
     gboolean has_alpha;
 } RawThumbnail;
 
-int init_vips();
-
-void shutdown_vips();
-
 int thumbnail(RawThumbnail *thumb);

@@ -1,9 +1,8 @@
 package thumbnailer
 
-//#cgo pkg-config: vips
+// #cgo pkg-config: vips
 // #cgo CFLAGS: -std=c11
 // #include "vips.h"
-// #include "stdlib.h"
 import "C"
 import (
 	"errors"
@@ -20,66 +19,80 @@ import (
 )
 
 var (
-	vipsMu    sync.Mutex
-	initiated bool
+	once sync.Once
 )
 
-func vipsCheckLeaks() {
-	C.vips_leak_set(1)
+// VIPSOptions stores various options for vips.
+type VIPSOptions struct {
+	Leak                                 bool
+	CacheMax, CacheMaxMem, CacheMaxFiles *int
 }
 
-func vipsPrintAll() {
+// VIPSMemoryProfile contains the vips memory profile.
+type VIPSMemoryProfile struct {
+	Memory, MemoryHighWater int64
+	Allocations, Files      int
+}
+
+// InitVIPS initializes vips explicitly.
+func InitVIPS() {
+	initVIPS()
+}
+
+// SetVIPSOptions initializes vips with options.
+func SetVIPSOptions(options VIPSOptions) {
+	initVIPS()
+	if options.Leak {
+		C.vips_leak_set(1)
+	}
+	if options.CacheMax != nil {
+		C.vips_cache_set_max(C.int(*options.CacheMax))
+	}
+	if options.CacheMaxMem != nil {
+		C.vips_cache_set_max_mem(C.ulong(*options.CacheMaxMem))
+	}
+	if options.CacheMaxFiles != nil {
+		C.vips_cache_set_max_files(C.int(*options.CacheMaxFiles))
+	}
+}
+
+func initVIPS() {
+	once.Do(func() {
+		name := C.CString(os.Args[0])
+		defer free(unsafe.Pointer(name))
+		if C.vips_init(name) != 0 {
+			panic(fmt.Sprintf("couldn't start vips: %v", vErr.error()))
+		}
+		C.vips_concurrency_set(1)
+	})
+}
+
+// ShutdownVIPS shuts vips down. It can't be used again after this.
+func ShutdownVIPS() {
+	C.vips_shutdown()
+}
+
+// VIPSMemory returns vips's internal tracked memory profile.
+func VIPSMemory() VIPSMemoryProfile {
+	initVIPS()
+	return VIPSMemoryProfile{
+		Memory:          int64(C.vips_tracked_get_mem()),
+		MemoryHighWater: int64(C.vips_tracked_get_mem_highwater()),
+		Allocations:     int(C.vips_tracked_get_allocs()),
+		Files:           int(C.vips_tracked_get_files()),
+	}
+}
+
+// PrintAllVIPSObjects prints all objects in vips's operation cache.
+func PrintAllVIPSObjects() {
+	initVIPS()
 	C.vips_object_print_all()
 }
 
-// InitVIPS initializes vips.
-func InitVIPS() {
-	vipsMu.Lock()
-	defer vipsMu.Unlock()
-	if C.init_vips() != 0 {
-		panic(fmt.Sprintf("couldn't start vips: %v", vErr.error()))
-	}
-	initiated = true
-}
-
-// ShutdownVIPS shuts vips down.
-func ShutdownVIPS() {
-	vipsMu.Lock()
-	C.shutdown_vips()
-	initiated = false
-	vipsMu.Unlock()
-}
-
-// VIPSCacheSetMaxMem Sets the maximum amount of tracked memory vips allows before it starts dropping cached operations.
-func VIPSCacheSetMaxMem(maxMem int) {
-	if !initiated {
-		InitVIPS()
-	}
-	C.vips_cache_set_max_mem(C.size_t(maxMem))
-}
-
-// VIPSCacheSetMax sets the maximum number of operations vips keeps in cache.
-func VIPSCacheSetMax(max int) {
-	if !initiated {
-		InitVIPS()
-	}
-	C.vips_cache_set_max(C.int(max))
-}
-
-// VIPSCacheSetMaxFiles Sets the maximum number of tracked files vips allows before it starts dropping cached
-// operations.
-func VIPSCacheSetMaxFiles(maxFiles int) {
-	if !initiated {
-		InitVIPS()
-	}
-	C.vips_cache_set_max_files(C.int(maxFiles))
-}
-
-// DropAllVIPSCache drops the whole operation cache. Called automatically on ShutdownVips().
+// DropAllVIPSCache drops the whole operation cache. Called automatically on ShutdownVips(). Some VIPS versions can't
+// run after this operation is performed.
 func DropAllVIPSCache() {
-	if !initiated {
-		InitVIPS()
-	}
+	initVIPS()
 	C.vips_cache_drop_all()
 }
 
@@ -153,7 +166,7 @@ func thumbnailFromFile(file *File) (err error) {
 			return err
 		}
 	}
-	defer C.free(unsafe.Pointer(thumb.input_path))
+	defer free(unsafe.Pointer(thumb.input_path))
 	return handleThumbnailOutput(file, &thumb)
 }
 
@@ -165,11 +178,9 @@ func handleThumbnailOutput(file *File, thumb *C.RawThumbnail) error {
 	}()
 	if file.Thumbnail.Path != "" {
 		thumb.output_path = C.CString(file.Thumbnail.Path)
-		defer C.free(unsafe.Pointer(thumb.output_path))
+		defer free(unsafe.Pointer(thumb.output_path))
 	}
-	if !initiated {
-		InitVIPS()
-	}
+	initVIPS()
 	if C.thumbnail(thumb) != 0 {
 		return vErr.error()
 	}

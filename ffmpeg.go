@@ -1,6 +1,6 @@
 package thumbnailer
 
-//#cgo pkg-config: libavformat libavutil libavcodec libswscale
+// #cgo pkg-config: libavformat libavutil libavcodec libswscale
 // #cgo CFLAGS: -std=c11
 // #cgo LDFLAGS: -lm
 // #include "ffmpeg.h"
@@ -9,7 +9,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"runtime"
 	"sync"
 	"syscall"
 	"time"
@@ -84,7 +83,7 @@ func interruptCallback(opaque unsafe.Pointer) C.int {
 // AVLogLevel defines the ffmpeg threshold for dumping information to stderr.
 type AVLogLevel int
 
-// Possible values for AVLogLevel
+// Possible values for AVLogLevel.
 const (
 	AVLogQuiet AVLogLevel = (iota - 1) * 8
 	AVLogPanic
@@ -413,8 +412,6 @@ func thumbnail(ctx context.Context) <-chan error {
 }
 
 func ffmpegThumbnail(ctx context.Context, file *File) error {
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
 	ctx = context.WithValue(ctx, fileKey, file)
 	callbackFlags := C.int(readCallbackFlag | interruptCallbackFlag)
 	if file.Seeker != nil {

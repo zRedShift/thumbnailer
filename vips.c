@@ -1,21 +1,5 @@
 #include "vips.h"
 
-static gboolean initiated = FALSE;
-
-int init_vips() {
-    if (!initiated) {
-        initiated = TRUE;
-        return VIPS_INIT("thumbnailer");
-    }
-    return vips_init("thumbnailer");
-}
-
-void shutdown_vips() {
-    if (initiated) {
-        vips_shutdown();
-    }
-}
-
 static int has_alpha(VipsImage *in, gboolean *has_alpha) {
     if ((*has_alpha = vips_image_hasalpha(in)) == FALSE) {
         return 0;
@@ -45,15 +29,21 @@ static int has_alpha(VipsImage *in, gboolean *has_alpha) {
 int thumbnail(RawThumbnail *thumb) {
     VipsImage *in, *out;
     if (!thumb->input_path) {
-        if (!(in = vips_image_new_from_memory(thumb->input, thumb->input_size, thumb->width, thumb->height,
+        VipsImage *tmp;
+        if (!(tmp = vips_image_new_from_memory(thumb->input, thumb->input_size, thumb->width, thumb->height,
                                               thumb->bands, VIPS_FORMAT_UCHAR))) {
             return -1;
         }
-        in->Type = VIPS_INTERPRETATION_sRGB;
         GValue orientation = G_VALUE_INIT;
         g_value_init(&orientation, G_TYPE_INT);
         g_value_set_int(&orientation, thumb->orientation);
-        vips_image_set(in, VIPS_META_ORIENTATION, &orientation);
+        vips_image_set(tmp, VIPS_META_ORIENTATION, &orientation);
+        int err = vips_copy(tmp, &in, "interpretation", VIPS_INTERPRETATION_RGB, NULL);
+        g_object_unref(tmp);
+        if (err) {
+            return -1;
+        }
+
     } else {
         if (!(in = vips_image_new_from_file(thumb->input_path, NULL))) {
             return -1;

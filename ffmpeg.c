@@ -323,11 +323,11 @@ int64_t find_duration(AVFormatContext *fmt_ctx) {
 }
 
 ThumbContext *create_thumb_context(AVStream *stream, AVFrame *frame) {
-    ThumbContext *thumb_ctx = av_malloc(sizeof *thumb_ctx);
+    ThumbContext *thumb_ctx = av_mallocz(sizeof *thumb_ctx);
     if (!thumb_ctx) {
         return thumb_ctx;
     }
-    thumb_ctx->n = 0;
+//    thumb_ctx->n = 0;
     thumb_ctx->desc = av_pix_fmt_desc_get(frame->format);
     int nb_frames = 100;
     if (stream->disposition & AV_DISPOSITION_ATTACHED_PIC) {
@@ -337,14 +337,13 @@ ThumbContext *create_thumb_context(AVStream *stream, AVFrame *frame) {
     }
     int frames_in_128mb = (1 << 30) / (av_get_bits_per_pixel(thumb_ctx->desc) * frame->height * frame->width);
     thumb_ctx->max_frames = FFMIN(nb_frames, frames_in_128mb);
-    thumb_ctx->hist_size = 0;
-    thumb_ctx->alpha = 0;
+//    thumb_ctx->hist_size = 0;
+//    thumb_ctx->alpha = 0;
     int i;
     for (i = 0; i < thumb_ctx->desc->nb_components; i++) {
         thumb_ctx->hist_size += 1 << thumb_ctx->desc->comp[i].depth;
     }
-    thumb_ctx->median = av_malloc_array(thumb_ctx->hist_size, sizeof(double));
-    memset(thumb_ctx->median, 0, thumb_ctx->hist_size * sizeof(double));
+    thumb_ctx->median = av_mallocz_array(thumb_ctx->hist_size, sizeof(double));
     if (!thumb_ctx->median) {
         av_free(thumb_ctx);
         return NULL;
@@ -357,7 +356,7 @@ ThumbContext *create_thumb_context(AVStream *stream, AVFrame *frame) {
     }
     for (i = 0; i < thumb_ctx->max_frames; i++) {
         thumb_ctx->frames[i].frame = NULL;
-        thumb_ctx->frames[i].hist = av_malloc_array(thumb_ctx->hist_size, sizeof(int));
+        thumb_ctx->frames[i].hist = av_mallocz_array(thumb_ctx->hist_size, sizeof(int));
         if (!thumb_ctx->frames[i].hist) {
             for (i--; i >= 0; i--) {
                 av_free(thumb_ctx->frames[i].hist);
@@ -366,7 +365,6 @@ ThumbContext *create_thumb_context(AVStream *stream, AVFrame *frame) {
             av_free(thumb_ctx);
             return NULL;
         }
-        memset(thumb_ctx->frames[i].hist, 0, thumb_ctx->hist_size * sizeof(int));
     }
     return thumb_ctx;
 }

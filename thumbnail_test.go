@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -16,6 +17,8 @@ import (
 
 func TestCreateThumbnail(t *testing.T) {
 	t.Parallel()
+	_, repeat := os.LookupEnv("REPEAT")
+	SetFFmpegLogLevel(AVLogFatal)
 	tests := []struct {
 		filename        string
 		wantErr         error
@@ -54,12 +57,17 @@ func TestCreateThumbnail(t *testing.T) {
 		{"schizo_270.mp4", nil, true, Dimensions{480, 360}, 2544000000, 0, false, "video/mp4", "", "", 6},
 	}
 	testDir := "fixtures"
-	var wg sync.WaitGroup
+	Mallopt(TrimThreshold, 0)
+	Mallopt(MMapThreshold, 1<<25)
+	Mallopt(ArenaMax, runtime.GOMAXPROCS(0))
+	Mallopt(TopPad, 0)
 	InitVIPS()
-	vipsCheckLeaks()
-	VIPSCacheSetMaxFiles(10)
-	VIPSCacheSetMax(10)
-	VIPSCacheSetMaxMem(100 * 1 << 20)
+	options := VIPSOptions{true, new(int), new(int), new(int)}
+	*options.CacheMaxFiles = 100
+	*options.CacheMax = 100
+	*options.CacheMaxMem = 1000 << 20
+	SetVIPSOptions(options)
+	wg := new(sync.WaitGroup)
 	for _, test := range tests {
 		test := test
 		files := make([]*File, 5)
@@ -167,9 +175,12 @@ func TestCreateThumbnail(t *testing.T) {
 		t.Helper()
 		t.Parallel()
 		wg.Wait()
-		vipsPrintAll()
-		DropAllVIPSCache()
-		ShutdownVIPS()
-		InitVIPS()
+		t.Logf("%+v", VIPSMemory())
+		MallocTrim(0)
+		if !repeat {
+			PrintAllVIPSObjects()
+			DropAllVIPSCache()
+			ShutdownVIPS()
+		}
 	})
 }
