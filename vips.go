@@ -5,8 +5,6 @@ package thumbnailer
 // #include "vips.h"
 import "C"
 import (
-	"errors"
-	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
@@ -61,7 +59,8 @@ func initVIPS() {
 		name := C.CString(os.Args[0])
 		defer free(unsafe.Pointer(name))
 		if C.vips_init(name) != 0 {
-			panic(fmt.Sprintf("couldn't start vips: %v", vErr.error()))
+			vErr := errBuf.lastError()
+			panic("couldn't start vips: " + vErr.Error())
 		}
 		C.vips_concurrency_set(1)
 	})
@@ -96,28 +95,39 @@ func DropAllVIPSCache() {
 	C.vips_cache_drop_all()
 }
 
-type vipsError struct {
+type errorBuf struct {
 	sync.Mutex
 	errSlice []string
-	lastErr  error
+	lastErr  vipsError
 }
 
-func (v *vipsError) error() error {
-	v.Lock()
-	defer v.Unlock()
+type vipsError struct {
+	domain, error string
+}
+
+func (v vipsError) Error() string { return "vips: " + v.domain + ": " + v.error }
+
+func (b *errorBuf) lastError() vipsError {
+	b.Lock()
+	defer b.Unlock()
 	errSlice := strings.Split(C.GoString(C.vips_error_buffer()), "\n")
 	if len(errSlice) > 1 {
 		C.vips_error_clear()
 	}
-	v.errSlice = append(errSlice[:len(errSlice)-1], v.errSlice...)
-	if len(v.errSlice) != 0 {
-		v.lastErr = errors.New("vips: " + v.errSlice[0])
-		v.errSlice = v.errSlice[1:]
+	b.errSlice = append(errSlice[:len(errSlice)-1], b.errSlice...)
+	if len(b.errSlice) != 0 {
+		err := strings.SplitN(b.errSlice[0], ": ", 2)
+		b.errSlice = b.errSlice[1:]
+		if len(err) == 2 {
+			b.lastErr.domain = err[0]
+			err = err[1:]
+		}
+		b.lastErr.error = err[0]
 	}
-	return v.lastErr
+	return b.lastErr
 }
 
-var vErr = &vipsError{errSlice: make([]string, 0, 10)}
+var errBuf = &errorBuf{errSlice: make([]string, 0, 10)}
 
 func thumbnailFromFFmpeg(file *File, data *C.uchar) error {
 	thumb := C.RawThumbnail{
@@ -182,7 +192,7 @@ func handleThumbnailOutput(file *File, thumb *C.RawThumbnail) error {
 	}
 	initVIPS()
 	if C.thumbnail(thumb) != 0 {
-		return vErr.error()
+		return errBuf.lastError()
 	}
 	file.Thumbnail.Width, file.Thumbnail.Height = int(thumb.thumb_width), int(thumb.thumb_height)
 	if thumb.has_alpha != 0 {

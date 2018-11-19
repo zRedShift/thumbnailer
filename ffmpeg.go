@@ -7,10 +7,9 @@ package thumbnailer
 import "C"
 import (
 	"context"
-	"fmt"
 	"io"
+	"strconv"
 	"sync"
-	"syscall"
 	"time"
 	"unsafe"
 )
@@ -129,33 +128,34 @@ const (
 	durationKey
 )
 
-type avError C.int
+type avError int
 
-var (
-	avErrNoMem           = -avError(syscall.ENOMEM)
-	avErrEOF             = avError(C.AVERROR_EOF)
-	avErrUnknown         = avError(C.AVERROR_UNKNOWN)
-	avErrDecoderNotFound = avError(C.AVERROR_DECODER_NOT_FOUND)
-	avErrInvalidData     = avError(C.AVERROR_INVALIDDATA)
-	errTooBig            = avError(C.ERR_TOO_BIG)
+const (
+	avErrNoMem           avError = -C.ENOMEM
+	avErrEOF             avError = C.AVERROR_EOF
+	avErrUnknown         avError = C.AVERROR_UNKNOWN
+	avErrDecoderNotFound avError = C.AVERROR_DECODER_NOT_FOUND
+	avErrInvalidData     avError = C.AVERROR_INVALIDDATA
+	errTooBig            avError = C.ERR_TOO_BIG
 )
 
-func (e avError) Error() string {
+func (e avError) errorString() string {
 	if e == avErrNoMem {
-		return "ffmpeg: Cannot allocate memory"
+		return "cannot allocate memory"
 	}
 	if e == errTooBig {
-		return "ffmpeg: video or cover art size exceeds maximum allowed dimensions"
+		return "video or cover art size exceeds maximum allowed dimensions"
 	}
 	errString := (*C.char)(C.av_malloc(C.AV_ERROR_MAX_STRING_SIZE))
 	if errString == nil {
-		return fmt.Sprintf("ffmpeg: cannot allocate memory for error string, error code: %d", int(e))
+		return "cannot allocate memory for error string, error code: " + strconv.Itoa(int(e))
 	}
+	defer C.av_free(unsafe.Pointer(errString))
 	C.av_make_error_string(errString, C.AV_ERROR_MAX_STRING_SIZE, C.int(e))
-	goString := "ffmpeg: " + C.GoString(errString)
-	C.av_free(unsafe.Pointer(errString))
-	return goString
+	return C.GoString(errString)
 }
+
+func (e avError) Error() string { return "ffmpeg: " + e.errorString() }
 
 type contextMap struct {
 	sync.RWMutex

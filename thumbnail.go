@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/zRedShift/mimemagic"
@@ -54,6 +55,48 @@ type Thumbnail struct {
 // Dimensions stores the dimensions of the file and its thumbnail (if applicable).
 type Dimensions struct {
 	Width, Height int
+}
+
+// ThumbError stores the errors returned by the C Libraries used in this package.
+type ThumbError struct {
+	Library, Domain, Err string
+	Code                 int
+}
+
+// Common ThumbErrors.
+var (
+	ErrInvalidData            = avErrorToThumbError(avErrInvalidData)
+	ErrFileFormatNotSupported = vipsErrorToThumbError(vipsError{
+		domain: "VipsForeignLoad",
+		error:  "the current build does not support this file format",
+	})
+	ErrAnimatedWEBPNotSupported = vipsErrorToThumbError(vipsError{
+		domain: "webp2vips",
+		error:  "the current build does not support animated webp files",
+	})
+)
+
+func (t *ThumbError) Error() string {
+	if t.Domain == "" {
+		return t.Library + ": " + t.Err
+	}
+	return t.Library + ": " + t.Domain + ": " + t.Err
+}
+
+func avErrorToThumbError(e avError) *ThumbError {
+	return &ThumbError{
+		Library: "ffmpeg",
+		Err:     e.errorString(),
+		Code:    int(e),
+	}
+}
+
+func vipsErrorToThumbError(e vipsError) *ThumbError {
+	return &ThumbError{
+		Library: "vips",
+		Domain:  e.domain,
+		Err:     e.error,
+	}
 }
 
 // FileFromReader takes an io.Reader and an optional filename (for better MIME sniffing), and returns a File ready for
@@ -158,6 +201,25 @@ func (f *File) ToPath(path string, size int, quality ...int) *File {
 // FromReadSeeker or FileFromPath and then ToWriter or ToPath, or equivalent for defined behaviour) and a context for
 // interruption. Currently it's only checked if Done() in FFmpeg before blocking operations via an interrupt callback.
 func CreateThumbnailWithContext(ctx context.Context, file *File) (err error) {
+	defer func() {
+		switch tErr := err.(type) {
+		case avError:
+			if tErr == avErrInvalidData {
+				err = ErrInvalidData
+			} else {
+				err = avErrorToThumbError(tErr)
+			}
+		case vipsError:
+			switch {
+			case tErr.domain == "VipsForeignLoad" && strings.HasSuffix(tErr.error, "not a known file format"):
+				err = ErrFileFormatNotSupported
+			case tErr.domain == "webp2vips" && tErr.error == "unable to read pixels":
+				err = ErrAnimatedWEBPNotSupported
+			default:
+				err = vipsErrorToThumbError(tErr)
+			}
+		}
+	}()
 	if file.Media == "video" || file.Media == "audio" {
 		if file.Path != "" {
 			f, err := os.Open(file.Path)

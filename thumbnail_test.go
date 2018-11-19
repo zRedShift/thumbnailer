@@ -1,13 +1,11 @@
 package thumbnailer
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
 	"path/filepath"
-	"reflect"
 	"runtime"
 	"strings"
 	"sync"
@@ -50,11 +48,12 @@ func TestCreateThumbnail(t *testing.T) {
 		{"macabre.mp4", nil, true, Dimensions{492, 360}, 3925000000, 0, false, "video/mp4", "", "", 1},
 		{"ancap.svgz", nil, true, Dimensions{900, 600}, 0, 0, false, "image/svg+xml-compressed", "", "", 1},
 		{"sample.tif", nil, true, Dimensions{1600, 2100}, 0, 0, false, "image/tiff", "", "", 1},
-		{"mqdefault_6s.webp", errors.New("vips: webp2vips: unable to read pixels"), false, Dimensions{0, 0}, 0, 0, false, "image/webp", "", "", 0},
+		{"mqdefault_6s.webp", ErrAnimatedWEBPNotSupported, false, Dimensions{0, 0}, 0, 0, false, "image/webp", "", "", 0},
 		{"schizo_0.mp4", nil, true, Dimensions{480, 360}, 2544000000, 0, false, "video/mp4", "", "", 1},
 		{"schizo_90.mp4", nil, true, Dimensions{480, 360}, 2544000000, 0, false, "video/mp4", "", "", 8},
 		{"schizo_180.mp4", nil, true, Dimensions{480, 360}, 2544000000, 0, false, "video/mp4", "", "", 3},
 		{"schizo_270.mp4", nil, true, Dimensions{480, 360}, 2544000000, 0, false, "video/mp4", "", "", 6},
+		{"urandom", ErrFileFormatNotSupported, false, Dimensions{0, 0}, 0, 0, false, "application/octet-stream", "", "", 0},
 	}
 	testDir := "fixtures"
 	Mallopt(TrimThreshold, 0)
@@ -130,7 +129,7 @@ func TestCreateThumbnail(t *testing.T) {
 			t.Run(test.filename, func(t *testing.T) {
 				defer wg.Done()
 				t.Parallel()
-				if err = CreateThumbnail(f); !reflect.DeepEqual(err, test.wantErr) && (f.Seeker != nil || err != avErrInvalidData) {
+				if err = CreateThumbnail(f); err != test.wantErr && (f.Seeker != nil || err != ErrInvalidData) {
 					t.Errorf("CreateThumbnail() error = %v, want = %v", err, test.wantErr)
 				} else if err != nil {
 					t.Logf("CreateThumbnail() error = %v", err)
