@@ -12,6 +12,8 @@ import (
 	"sync"
 	"time"
 	"unsafe"
+
+	"github.com/zRedShift/seekstream"
 )
 
 //export readCallback
@@ -54,7 +56,13 @@ func seekCallback(opaque unsafe.Pointer, offset C.int64_t, whence C.int) C.int64
 		return C.int64_t(avErrUnknown)
 	}
 	if !ctx.SeekEnd && whence >= C.SEEK_END {
-		return C.int64_t(avErrUnknown)
+		f, ok := ctx.Reader.(*seekstream.File)
+		if !ok || !f.IsDone() {
+			return C.int64_t(avErrUnknown)
+
+		}
+		ctx.SeekEnd = true
+		ctx.Size = f.Size()
 	}
 	if whence == C.AVSEEK_SIZE && ctx.Size > 0 {
 		return C.int64_t(ctx.Size)
