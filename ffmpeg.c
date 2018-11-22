@@ -36,10 +36,10 @@ int create_format_context(AVFormatContext *fmt_ctx, int callbacks) {
     if (callbacks & READ_CALLBACK) {
         reader = readCallback;
     }
-    if (callbacks & WRITE_CALLBACK) {
-        writer = writeCallback;
-        write_flag = 1;
-    }
+//    if (callbacks & WRITE_CALLBACK) {
+//        writer = writeCallback;
+//        write_flag = 1;
+//    }
     if (callbacks & SEEK_CALLBACK) {
         seeker = seekCallback;
     }
@@ -216,45 +216,45 @@ AVFrame *convert_frame_to_rgb(AVFrame *frame, int alpha) {
     return output_frame;
 }
 
-int encode_frame_to_png(AVFormatContext *fmt_ctx, AVFrame *frame) {
-    AVCodec *enc = avcodec_find_encoder(AV_CODEC_ID_PNG);
-    if (!enc) {
-        return AVERROR_ENCODER_NOT_FOUND;
-    }
-    AVCodecContext *enc_ctx = avcodec_alloc_context3(enc);
-    if (!enc_ctx) {
-        return AVERROR(ENOMEM);
-    }
-    enc_ctx->width = frame->width;
-    enc_ctx->height = frame->height;
-    enc_ctx->pix_fmt = frame->format;
-    enc_ctx->codec_type = AVMEDIA_TYPE_VIDEO;
-    enc_ctx->time_base = (AVRational) {1, 1};
-    enc_ctx->compression_level = INT_MAX;
-    int err = open_codec(enc_ctx, enc);
-    if (err < 0) {
-        avcodec_free_context(&enc_ctx);
-        return err;
-    }
-    AVPacket pkt;
-    av_init_packet(&pkt);
-    pkt.data = NULL;
-    pkt.size = 0;
-    err = avcodec_send_frame(enc_ctx, frame);
-    if (err < 0) {
-        avcodec_free_context(&enc_ctx);
-        return err;
-    }
-    err = avcodec_receive_packet(enc_ctx, &pkt);
-    if (err < 0) {
-        avcodec_free_context(&enc_ctx);
-        return err;
-    }
-    err = writeCallback(fmt_ctx, pkt.data, pkt.size);
-    av_packet_unref(&pkt);
-    avcodec_free_context(&enc_ctx);
-    return err;
-}
+//int encode_frame_to_png(AVFormatContext *fmt_ctx, AVFrame *frame) {
+//    AVCodec *enc = avcodec_find_encoder(AV_CODEC_ID_PNG);
+//    if (!enc) {
+//        return AVERROR_ENCODER_NOT_FOUND;
+//    }
+//    AVCodecContext *enc_ctx = avcodec_alloc_context3(enc);
+//    if (!enc_ctx) {
+//        return AVERROR(ENOMEM);
+//    }
+//    enc_ctx->width = frame->width;
+//    enc_ctx->height = frame->height;
+//    enc_ctx->pix_fmt = frame->format;
+//    enc_ctx->codec_type = AVMEDIA_TYPE_VIDEO;
+//    enc_ctx->time_base = (AVRational) {1, 1};
+//    enc_ctx->compression_level = INT_MAX;
+//    int err = open_codec(enc_ctx, enc);
+//    if (err < 0) {
+//        avcodec_free_context(&enc_ctx);
+//        return err;
+//    }
+//    AVPacket pkt;
+//    av_init_packet(&pkt);
+//    pkt.data = NULL;
+//    pkt.size = 0;
+//    err = avcodec_send_frame(enc_ctx, frame);
+//    if (err < 0) {
+//        avcodec_free_context(&enc_ctx);
+//        return err;
+//    }
+//    err = avcodec_receive_packet(enc_ctx, &pkt);
+//    if (err < 0) {
+//        avcodec_free_context(&enc_ctx);
+//        return err;
+//    }
+//    err = writeCallback(fmt_ctx, pkt.data, pkt.size);
+//    av_packet_unref(&pkt);
+//    avcodec_free_context(&enc_ctx);
+//    return err;
+//}
 
 AVPacket create_packet() {
     AVPacket pkt;

@@ -14,9 +14,9 @@
 
 #define BUFFER_SIZE 1 << 12
 #define READ_CALLBACK 1
-#define WRITE_CALLBACK 2
-#define SEEK_CALLBACK 4
-#define INTERRUPT_CALLBACK 8
+//#define WRITE_CALLBACK 2
+#define SEEK_CALLBACK 2
+#define INTERRUPT_CALLBACK 4
 #define HAS_VIDEO_STREAM 1
 #define HAS_AUDIO_STREAM 2
 #define ERR_TOO_BIG FFERRTAG('H','M','M','M')
@@ -48,7 +48,7 @@ int create_codec_context(AVStream *video_stream, AVCodecContext **dec_ctx);
 
 AVFrame *convert_frame_to_rgb(AVFrame *frame, int alpha);
 
-int encode_frame_to_png(AVFormatContext *fmt_ctx, AVFrame *frame);
+//int encode_frame_to_png(AVFormatContext *fmt_ctx, AVFrame *frame);
 
 AVPacket create_packet();
 
@@ -67,7 +67,7 @@ void populate_histogram(ThumbContext *thumb_ctx, int n, AVFrame *frame);
 
 extern int readCallback(void *opaque, uint8_t *buf, int buf_size);
 
-extern int writeCallback(void *opaque, uint8_t *buf, int buf_size);
+//extern int writeCallback(void *opaque, uint8_t *buf, int buf_size);
 
 extern int64_t seekCallback(void *opaque, int64_t seek, int whence);
 
